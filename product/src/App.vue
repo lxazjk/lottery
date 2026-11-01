@@ -477,6 +477,7 @@ import Icon from "./components/Icon.vue";
 import { state, applySnapshot, nextPrize, pushQipao } from "./lottery/store.js";
 import { engine } from "./lottery/engine.js";
 import { api } from "./api/index.js";
+import { secureId } from "./lottery/model.mjs";
 
 const stageEl = ref(null);
 const baseUrl = import.meta.env.BASE_URL;
@@ -604,7 +605,7 @@ function startSpin() {
   celebrating.value = false;
   pendingRequest = {
     type: state.currentType,
-    id: crypto.randomUUID(),
+    id: secureId(),
     activityId: state.activityId,
   };
   state.phase = "spinning";

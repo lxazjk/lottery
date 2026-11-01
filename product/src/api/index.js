@@ -5,6 +5,7 @@ import {
   draw,
   validate,
   checkActivity,
+  secureId,
 } from "../lottery/model.mjs";
 
 const config = {
@@ -132,7 +133,7 @@ function notify() {
   // a notification; the source of truth remains the IndexedDB transaction.
   if (!channel) {
     try {
-      localStorage.setItem(NOTIFICATION, crypto.randomUUID());
+      localStorage.setItem(NOTIFICATION, secureId());
     } catch {
       /* optional */
     }
