@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "start": "cd dist && node ../../server/index.js 8888",
-    "serve": "npm run start"
+    "start": "vite preview",
+    "serve": "vite preview",
+    "preview": "vite preview"
   },
   "engines": {
     "node": ">=16.14.0"
