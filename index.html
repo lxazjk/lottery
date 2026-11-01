@@ -7,11 +7,25 @@
     <meta name="description" content="幸运盛典 · 1–200 号码现场抽奖" />
     <meta name="lottery-storage" content="browser-v1" />
     <title>幸运盛典 · 现场抽奖</title>
+    <script>
+      if (
+        location.protocol === "http:" &&
+        !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)
+      ) {
+        location.replace(
+          "https://" +
+            location.host +
+            location.pathname +
+            location.search +
+            location.hash,
+        );
+      }
+    </script>
     <!-- 3D 渲染全局库：按原顺序加载，供 CSS3D 引擎（Vue 之外的模块）使用 -->
     <script src="./lib/three.min.js"></script>
     <script src="./lib/TrackballControls.js"></script>
     <script src="./lib/CSS3DRenderer.js"></script>
-    <script type="module" crossorigin src="./assets/index-8a1cd7b7.js"></script>
+    <script type="module" crossorigin src="./assets/index-b7701184.js"></script>
     <link rel="stylesheet" href="./assets/index-2626d0da.css">
   </head>
   <body>
