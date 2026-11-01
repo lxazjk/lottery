@@ -3,6 +3,7 @@ import {
   createActivity,
   snapshot,
   draw,
+  redraw,
   validate,
   checkActivity,
   secureId,
@@ -26,10 +27,15 @@ const channel =
 function openDatabase() {
   if (!database) {
     database = new Promise((resolve, reject) => {
-      const request = indexedDB.open(DATABASE, 1);
+      // Upgrading closes v1 tabs through their versionchange handler. An older
+      // client cannot ignore absence history and draw an excluded number again.
+      const request = indexedDB.open(DATABASE, 2);
       request.onupgradeneeded = () => {
-        request.result.createObjectStore("state");
-        request.result.createObjectStore("backups", { keyPath: "id" });
+        const db = request.result;
+        if (!db.objectStoreNames.contains("state"))
+          db.createObjectStore("state");
+        if (!db.objectStoreNames.contains("backups"))
+          db.createObjectStore("backups", { keyPath: "id" });
       };
       request.onerror = () =>
         reject(new Error("无法打开本机存储，请检查浏览器是否允许保存网站数据"));
@@ -169,6 +175,18 @@ export const api = {
           ? { ...activity, archivedAt: new Date().toISOString() }
           : undefined,
         result: snapshot(next, config),
+      };
+    });
+    notify();
+    return data;
+  },
+  async redraw(winnerId, requestId, activityId) {
+    await ensureInitialized();
+    const data = await transaction((activity) => {
+      const change = redraw(activity, config, winnerId, requestId, activityId);
+      return {
+        activity: change.activity,
+        result: { ...snapshot(change.activity, config), winner: change.winner },
       };
     });
     notify();

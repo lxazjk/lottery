@@ -96,24 +96,28 @@
         <div class="stage-heading">
           <div class="eyebrow">
             <span></span
-            >{{ allDone ? "ALL THE LUCKY ONES" : currentPrize?.label }}
+            >{{ allDone && !busy ? "ALL THE LUCKY ONES" : currentPrize?.label }}
           </div>
           <h1>
             {{
               state.phase === "result"
                 ? "这一刻，幸运属于你。"
-                : allDone
+                : allDone && !busy
                   ? "每一份幸运，都已抵达。"
                   : "好运，即刻发生。"
             }}
           </h1>
-          <p v-if="allDone && state.phase !== 'result'">
+          <p v-if="allDone && !busy && state.phase !== 'result'">
             感谢每一位参与者，愿惊喜常伴。
           </p>
           <p v-else>
-            本轮抽取 <strong>{{ currentPrize?.text }}</strong
+            {{ redrawing ? "本轮补抽" : "本轮抽取" }}
+            <strong>{{ currentPrize?.text }}</strong
             ><span class="dot-separator">·</span
-            >{{ remaining(currentPrize) }} 个名额待揭晓
+            ><template v-if="redrawing">替换缺席号码，名额不变</template>
+            <template v-else
+              >{{ remaining(currentPrize) }} 个名额待揭晓</template
+            >
           </p>
         </div>
 
@@ -157,11 +161,17 @@
                   prizeName(state.winner.type)
                 }}
               </div>
-              <div class="winner-line"></div>
+              <button
+                class="redraw-button secondary-button"
+                @click="requestRedraw(state.winner)"
+                aria-haspopup="dialog"
+              >
+                <Icon name="reset" /> 无人到场 · 重新抽奖
+              </button>
             </div>
           </Transition>
           <div
-            v-if="allDone && state.phase !== 'result'"
+            v-if="allDone && !busy && state.phase !== 'result'"
             class="completion-display"
           >
             <Icon name="crown" /><strong>圆满开奖</strong
@@ -272,7 +282,7 @@
           <section
             class="dialog-card"
             :class="{
-              'reset-dialog': dialog === 'reset',
+              'reset-dialog': dialog === 'reset' || dialog === 'redraw',
               'prizes-dialog': dialog === 'prizes' || dialog === 'prize-intro',
               'single-prize-dialog':
                 (dialog === 'prizes' || dialog === 'prize-intro') &&
@@ -297,6 +307,7 @@
               <h2 id="dialog-title">幸运，值得被记住。</h2>
               <p class="dialog-subtitle">
                 已揭晓 {{ state.records.length }} 位幸运号码，共 8 个中奖名额。
+                点击号码旁的重抽图标，可替换未到场的中奖者。
               </p>
               <div class="results-list">
                 <div
@@ -306,10 +317,20 @@
                 >
                   <strong>{{ prize.text }}</strong>
                   <div class="result-numbers">
-                    <span
+                    <button
                       v-for="record in recordsFor(prize.type)"
                       :key="record.id"
-                      >{{ format(record.number) }}</span
+                      class="result-number"
+                      :aria-label="
+                        format(record.number) +
+                        ' 号未到场，重新抽取' +
+                        prize.text
+                      "
+                      :title="'重新抽取 ' + format(record.number) + ' 号的名额'"
+                      aria-haspopup="dialog"
+                      @click="requestRedraw(record)"
+                    >
+                      {{ format(record.number) }}<Icon name="reset" /></button
                     ><span
                       v-for="i in remaining(prize)"
                       :key="'empty' + i"
@@ -422,6 +443,29 @@
                 </template>
               </div>
             </template>
+            <template v-else-if="dialog === 'redraw'">
+              <span class="reset-symbol"><Icon name="reset" /></span>
+              <div class="eyebrow">ANOTHER LUCKY MOMENT</div>
+              <h2 id="dialog-title">
+                重新抽取{{ prizeName(redrawTarget?.type) }}？
+              </h2>
+              <p class="dialog-subtitle">
+                确认
+                {{
+                  format(redrawTarget?.number)
+                }}
+                号未到场后，将重新抽取该名额。
+                原号码退出本场抽奖，其他中奖结果不变。
+              </p>
+              <div class="reset-actions">
+                <button class="secondary-button" @click="closeDialog">
+                  保留中奖结果
+                </button>
+                <button class="primary-button small" @click="confirmRedraw">
+                  确认缺席，重新抽取
+                </button>
+              </div>
+            </template>
             <template v-else>
               <span class="reset-symbol"><Icon name="reset" /></span>
               <div class="eyebrow">START A NEW MOMENT</div>
@@ -488,6 +532,8 @@ const previewPrizeType = ref(null);
 const musicOn = ref(false);
 const celebrating = ref(false);
 const resetting = ref(false);
+const redrawTarget = ref(null);
+const redrawing = ref(false);
 let returnFocus = null;
 let pendingRequest = null;
 const introducedPrizeTypes = new Set();
@@ -539,7 +585,7 @@ const footerLabel = computed(() => {
 });
 
 function footerAction() {
-  if (allDone.value) return openDialog("restart");
+  if (allDone.value && !busy.value) return openDialog("restart");
   return primaryAction();
 }
 
@@ -558,7 +604,7 @@ async function initialize() {
       (_, i) => i + state.range.start,
     );
     engine.boot(stageEl.value, numbers);
-    engine.markWinners(state.records.map((row) => row.number));
+    markUnavailable();
   } catch (error) {
     state.ready = false;
     state.error = error.message || "请检查浏览器是否允许保存网站数据";
@@ -571,6 +617,37 @@ function selectPrize(prize) {
   state.phase = "idle";
   state.winner = null;
   celebrating.value = false;
+}
+
+function markUnavailable() {
+  engine.markWinners(
+    [...state.records, ...state.absentRecords].map((row) => row.number),
+  );
+}
+
+function requestRedraw(record) {
+  if (busy.value || !record) return;
+  redrawTarget.value = { ...record, activityId: state.activityId };
+  openDialog("redraw");
+}
+
+async function confirmRedraw() {
+  const target = redrawTarget.value;
+  if (dialog.value !== "redraw" || !target || busy.value) return;
+  await synchronize();
+  if (dialog.value !== "redraw") return;
+  if (
+    target.activityId !== state.activityId ||
+    !state.records.some((row) => row.id === target.id)
+  ) {
+    closeDialog();
+    pushQipao("该中奖结果已更新，请在中奖名单中重新选择");
+    return;
+  }
+  state.currentType = target.type;
+  introducedPrizeTypes.add(target.type);
+  closeDialog();
+  startSpin(target.id);
 }
 
 async function primaryAction() {
@@ -600,14 +677,16 @@ function confirmPrizeIntro() {
   startSpin();
 }
 
-function startSpin() {
+function startSpin(replaces = null) {
   state.winner = null;
   celebrating.value = false;
   pendingRequest = {
     type: state.currentType,
     id: secureId(),
     activityId: state.activityId,
+    replaces,
   };
+  redrawing.value = !!replaces;
   state.phase = "spinning";
   engine.spin();
 }
@@ -619,21 +698,28 @@ async function revealWinner() {
   engine.stop();
   try {
     const [data] = await Promise.all([
-      api.draw(request.type, request.id, request.activityId),
+      request.replaces
+        ? api.redraw(request.replaces, request.id, request.activityId)
+        : api.draw(request.type, request.id, request.activityId),
       new Promise((resolve) => setTimeout(resolve, 700)),
     ]);
     if (!alive || pendingRequest !== request) return;
     const latest = await api.getTempData();
     if (!alive || pendingRequest !== request) return;
-    if (latest.activityId !== request.activityId) {
-      await synchronize();
+    if (
+      latest.activityId !== request.activityId ||
+      !latest.records.some((row) => row.id === data.winner.id)
+    ) {
+      await synchronize(true);
       return;
     }
     applySnapshot(latest);
     state.winner = data.winner;
     state.phase = "result";
     pendingRequest = null;
-    engine.markWinners(state.records.map((row) => row.number));
+    redrawing.value = false;
+    markUnavailable();
+    if (request.replaces) pushQipao("补抽已完成，缺席号码已退出本场抽奖");
     celebrating.value = !window.matchMedia("(prefers-reduced-motion: reduce)")
       .matches;
     clearTimeout(celebrationTimer);
@@ -643,7 +729,13 @@ async function revealWinner() {
   } catch (error) {
     if (!alive || pendingRequest !== request) return;
     if (
-      ["ACTIVITY_CHANGED", "PRIZE_FULL", "INVALID_REQUEST"].includes(error.code)
+      [
+        "ACTIVITY_CHANGED",
+        "PRIZE_FULL",
+        "INVALID_REQUEST",
+        "WINNER_REPLACED",
+        "NO_CANDIDATES",
+      ].includes(error.code)
     ) {
       await synchronize(true);
       pushQipao(error.message);
@@ -751,12 +843,29 @@ async function synchronize(forceIdle = false) {
     if (!alive) return;
     const changed = data.activityId !== state.activityId;
     applySnapshot(data);
-    engine.markWinners(state.records.map((row) => row.number));
+    markUnavailable();
     const filledWhileSpinning =
-      state.phase === "spinning" && !remaining(currentPrize.value);
-    if (changed || forceIdle || filledWhileSpinning) {
+      state.phase === "spinning" &&
+      !pendingRequest?.replaces &&
+      !remaining(currentPrize.value);
+    const replacedWhileSpinning =
+      state.phase === "spinning" &&
+      pendingRequest?.replaces &&
+      !state.records.some((row) => row.id === pendingRequest.replaces);
+    const resultReplaced =
+      state.phase === "result" &&
+      state.winner &&
+      !state.records.some((row) => row.id === state.winner.id);
+    if (
+      changed ||
+      forceIdle ||
+      filledWhileSpinning ||
+      replacedWhileSpinning ||
+      resultReplaced
+    ) {
       engine.stop();
       pendingRequest = null;
+      redrawing.value = false;
       state.phase = "idle";
       state.winner = null;
       celebrating.value = false;
@@ -766,6 +875,8 @@ async function synchronize(forceIdle = false) {
       if (changed) pushQipao("其他页面已开始新活动，当前页面已同步");
       else if (filledWhileSpinning)
         pushQipao("该奖项已在其他页面抽完，已切换下一奖项");
+      else if (replacedWhileSpinning || resultReplaced)
+        pushQipao("该中奖结果已在其他页面被替换，当前页面已同步");
     }
   } catch (error) {
     pushQipao(error.message);
@@ -780,6 +891,7 @@ async function resetActivity(startAfterReset = false) {
     state.winner = null;
     state.currentType = nextPrize().type;
     pendingRequest = null;
+    redrawing.value = false;
     introducedPrizeTypes.clear();
     celebrating.value = false;
     engine.markWinners([]);

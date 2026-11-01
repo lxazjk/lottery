@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   createActivity,
   draw,
+  redraw,
   snapshot,
   validate,
   randomBelow,
@@ -179,4 +180,205 @@ test("secure random indices respect pool bounds, including a single remaining nu
     }
   }
   assert.throws(() => randomBelow(0), RangeError);
+});
+
+test("redraw replaces exactly one slot in a fully drawn activity and excludes absentees across prizes", () => {
+  let activity = createActivity(config);
+  for (const type of [4, 4, 4, 3, 3, 2, 2, 1])
+    activity = draw(
+      activity,
+      config,
+      type,
+      id(),
+      activity.id,
+      () => 0,
+    ).activity;
+  const original = activity.records[7];
+  const replacement = redraw(
+    activity,
+    config,
+    original.id,
+    id(),
+    activity.id,
+    () => 0,
+  );
+  assert.equal(replacement.winner.number, 9);
+  assert.equal(replacement.winner.type, 1);
+  assert.deepEqual(
+    replacement.activity.records.slice(0, 7),
+    activity.records.slice(0, 7),
+  );
+  assert.equal(replacement.activity.records.length, 8);
+  assert.equal(
+    activity.absentRecords.length,
+    0,
+    "the input activity remains unchanged",
+  );
+  assert.equal(replacement.activity.absentRecords[0].number, 8);
+  assert.equal(replacement.activity.revision, activity.revision + 1);
+  const second = redraw(
+    replacement.activity,
+    config,
+    activity.records[0].id,
+    id(),
+    activity.id,
+    () => 0,
+  );
+  assert.equal(second.winner.number, 10);
+  assert.equal(snapshot(second.activity, config).availableCount, 190);
+  assert.equal(second.activity.records.length, 8);
+});
+
+test("replacement chains survive reload; retries never replace twice or resurrect an absent winner", () => {
+  const initial = createActivity(config);
+  const first = draw(initial, config, 4, id(), initial.id, () => 0);
+  const requestId = id();
+  assert.throws(
+    () =>
+      redraw(first.activity, config, undefined, first.winner.id, initial.id),
+    { code: "INVALID_REQUEST" },
+  );
+  const second = redraw(
+    first.activity,
+    config,
+    first.winner.id,
+    requestId,
+    initial.id,
+    () => 0,
+  );
+  const reloaded = JSON.parse(JSON.stringify(second.activity));
+  const retry = redraw(
+    reloaded,
+    config,
+    first.winner.id,
+    requestId,
+    initial.id,
+    () => {
+      throw new Error("must not redraw");
+    },
+  );
+  assert.deepEqual(retry.activity, reloaded);
+  assert.equal(retry.winner.number, 2);
+  assert.throws(
+    () => redraw(reloaded, config, first.winner.id, id(), initial.id),
+    { code: "WINNER_REPLACED" },
+  );
+  assert.throws(() => draw(reloaded, config, 4, first.winner.id, initial.id), {
+    code: "WINNER_REPLACED",
+  });
+  assert.throws(() => redraw(reloaded, config, id(), requestId, initial.id), {
+    code: "INVALID_REQUEST",
+  });
+  const third = redraw(
+    reloaded,
+    config,
+    second.winner.id,
+    id(),
+    initial.id,
+    () => 0,
+  );
+  assert.equal(third.winner.number, 3);
+  assert.deepEqual(
+    third.activity.absentRecords.map((row) => row.number),
+    [1, 2],
+  );
+  assert.throws(
+    () =>
+      redraw(third.activity, config, first.winner.id, requestId, initial.id),
+    { code: "WINNER_REPLACED" },
+  );
+  const otherPrize = draw(third.activity, config, 3, id(), initial.id, () => 0);
+  assert.equal(otherPrize.winner.number, 4);
+  const saved = snapshot(third.activity, config);
+  saved.absentRecords[0].number = 999;
+  assert.equal(third.activity.absentRecords[0].number, 1);
+});
+
+test("old stored activities without absence history remain usable; reset re-enables excluded numbers", () => {
+  let legacy = createActivity(config);
+  delete legacy.absentRecords;
+  legacy = draw(legacy, config, 1, id(), legacy.id, () => 0).activity;
+  assert.deepEqual(snapshot(legacy, config).absentRecords, []);
+  const replaced = redraw(
+    legacy,
+    config,
+    legacy.records[0].id,
+    id(),
+    legacy.id,
+    () => 0,
+  );
+  const next = createActivity(config);
+  assert.equal(draw(next, config, 1, id(), next.id, () => 0).winner.number, 1);
+  assert.throws(
+    () => redraw(next, config, replaced.winner.id, id(), legacy.id),
+    { code: "ACTIVITY_CHANGED" },
+  );
+});
+
+test("exhausted pools and failed random selection preserve the original winner and quota", () => {
+  const settings = {
+    numberRange: { start: 1, end: 2 },
+    prizes: [{ type: 1, count: 1 }],
+  };
+  const initial = createActivity(settings);
+  const first = draw(initial, settings, 1, id(), initial.id, () => 0);
+  assert.throws(
+    () =>
+      redraw(
+        first.activity,
+        settings,
+        first.winner.id,
+        id(),
+        initial.id,
+        () => 99,
+      ),
+    /随机数生成失败/,
+  );
+  assert.equal(first.activity.absentRecords.length, 0);
+  const second = redraw(
+    first.activity,
+    settings,
+    first.winner.id,
+    id(),
+    initial.id,
+    () => 0,
+  );
+  const before = JSON.stringify(second.activity);
+  assert.throws(
+    () => redraw(second.activity, settings, second.winner.id, id(), initial.id),
+    { code: "NO_CANDIDATES" },
+  );
+  assert.equal(JSON.stringify(second.activity), before);
+  assert.equal(snapshot(second.activity, settings).availableCount, 0);
+});
+
+test("corrupt absence history cannot re-enable an excluded number or sever its replacement link", () => {
+  const initial = createActivity(config);
+  const first = draw(initial, config, 4, id(), initial.id, () => 0);
+  const second = redraw(
+    first.activity,
+    config,
+    first.winner.id,
+    id(),
+    initial.id,
+    () => 0,
+  );
+  for (const corrupt of [
+    { ...second.activity, absentRecords: null },
+    { ...second.activity, absentRecords: [null] },
+    {
+      ...second.activity,
+      absentRecords: [
+        { ...second.activity.absentRecords[0], number: second.winner.number },
+      ],
+    },
+    {
+      ...second.activity,
+      absentRecords: [
+        { ...second.activity.absentRecords[0], replacedBy: id() },
+      ],
+    },
+    { ...second.activity, records: [{ ...second.winner, replaces: id() }] },
+  ])
+    assert.throws(() => validate(corrupt, config), { code: "INVALID_DATA" });
 });

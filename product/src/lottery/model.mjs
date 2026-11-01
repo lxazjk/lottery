@@ -1,4 +1,4 @@
-// Shared, DOM-free rules. Storage must run draw/reset in one atomic transaction.
+// Shared, DOM-free rules. Storage must run draw/redraw/reset atomically.
 export class LotteryError extends Error {
   constructor(message, code) {
     super(message);
@@ -51,6 +51,8 @@ export function validate(activity, config) {
     !activity ||
     activity.config !== signature(config) ||
     !Array.isArray(activity.records) ||
+    (activity.absentRecords !== undefined &&
+      !Array.isArray(activity.absentRecords)) ||
     typeof activity.id !== "string"
   ) {
     throw new LotteryError(
@@ -60,9 +62,12 @@ export function validate(activity, config) {
   }
   const numbers = new Set(),
     ids = new Set();
-  for (const row of activity.records) {
-    const prize = config.prizes.find((p) => p.type === row.type);
+  const absent = activity.absentRecords || [];
+  const allRecords = [...activity.records, ...absent];
+  for (const row of allRecords) {
+    const prize = config.prizes.find((p) => p.type === row?.type);
     if (
+      !row ||
       !prize ||
       !Number.isInteger(row.number) ||
       row.number < config.numberRange.start ||
@@ -80,6 +85,32 @@ export function validate(activity, config) {
     }
     numbers.add(row.number);
     ids.add(row.id);
+  }
+  for (const row of allRecords) {
+    if (
+      row.replaces !== undefined &&
+      !absent.some(
+        (old) =>
+          old.id === row.replaces &&
+          old.replacedBy === row.id &&
+          old.type === row.type,
+      )
+    ) {
+      throw new LotteryError("补抽记录异常，请检查备份", "INVALID_DATA");
+    }
+  }
+  for (const row of absent) {
+    if (
+      !Number.isFinite(Date.parse(row.excludedAt)) ||
+      !allRecords.some(
+        (next) =>
+          next.id === row.replacedBy &&
+          next.replaces === row.id &&
+          next.type === row.type,
+      )
+    ) {
+      throw new LotteryError("缺席记录异常，请检查备份", "INVALID_DATA");
+    }
   }
   for (const prize of config.prizes) {
     if (
@@ -100,6 +131,7 @@ export function createActivity(config, records = []) {
     createdAt: new Date().toISOString(),
     config: signature(config),
     records: copyRecords(records),
+    absentRecords: [],
   };
   validate(activity, config);
   return activity;
@@ -112,11 +144,13 @@ export function snapshot(activity, config) {
     revision: activity.revision,
     cfgData: config,
     records: copyRecords(activity.records),
+    absentRecords: copyRecords(activity.absentRecords || []),
     availableCount:
       config.numberRange.end -
       config.numberRange.start +
       1 -
-      activity.records.length,
+      activity.records.length -
+      (activity.absentRecords || []).length,
   };
 }
 
@@ -151,15 +185,10 @@ export function draw(
 ) {
   validate(activity, config);
   checkActivity(activity, expectedId);
-  if (
-    typeof requestId !== "string" ||
-    !/^[a-zA-Z0-9-]{12,80}$/.test(requestId)
-  ) {
-    throw new LotteryError("抽奖请求无效，请刷新页面", "INVALID_REQUEST");
-  }
+  checkRequest(activity, requestId);
   const existing = activity.records.find((row) => row.id === requestId);
   if (existing) {
-    if (existing.type !== type)
+    if (existing.type !== type || existing.replaces)
       throw new LotteryError("抽奖请求与奖项不一致", "INVALID_REQUEST");
     return { activity, winner: existing };
   }
@@ -168,7 +197,42 @@ export function draw(
   if (activity.records.filter((r) => r.type === type).length >= prize.count) {
     throw new LotteryError("该奖项已全部抽完，请选择下一奖项", "PRIZE_FULL");
   }
-  const used = new Set(activity.records.map((r) => r.number));
+  const winner = {
+    id: requestId,
+    type,
+    number: chooseNumber(activity, config, choose),
+    at: new Date().toISOString(),
+  };
+  const next = {
+    ...activity,
+    revision: activity.revision + 1,
+    records: [...activity.records, winner],
+  };
+  validate(next, config);
+  return { activity: next, winner };
+}
+
+function checkRequest(activity, requestId) {
+  if (
+    typeof requestId !== "string" ||
+    !/^[a-zA-Z0-9-]{12,80}$/.test(requestId)
+  ) {
+    throw new LotteryError("抽奖请求无效，请刷新页面", "INVALID_REQUEST");
+  }
+  if ((activity.absentRecords || []).some((row) => row.id === requestId)) {
+    throw new LotteryError(
+      "该中奖结果已因缺席被替换，已同步最新名单",
+      "WINNER_REPLACED",
+    );
+  }
+}
+
+function chooseNumber(activity, config, choose) {
+  const used = new Set(
+    [...activity.records, ...(activity.absentRecords || [])].map(
+      (r) => r.number,
+    ),
+  );
   const available = [];
   for (
     let number = config.numberRange.start;
@@ -178,20 +242,62 @@ export function draw(
     if (!used.has(number)) available.push(number);
   }
   if (!available.length)
-    throw new LotteryError("没有可参与的号码", "PRIZE_FULL");
+    throw new LotteryError(
+      "当前已没有可参与的号码，无法继续抽取",
+      "NO_CANDIDATES",
+    );
   const index = choose(available.length);
   if (!Number.isInteger(index) || index < 0 || index >= available.length)
     throw new Error("随机数生成失败");
+  return available[index];
+}
+
+// Excluding the absent winner and saving their replacement must commit together.
+// A failed/retried request can never lose the old result or consume another slot.
+export function redraw(
+  activity,
+  config,
+  winnerId,
+  requestId,
+  expectedId,
+  choose = randomBelow,
+) {
+  validate(activity, config);
+  checkActivity(activity, expectedId);
+  checkRequest(activity, requestId);
+  if (typeof winnerId !== "string" || !/^[a-zA-Z0-9-]{12,80}$/.test(winnerId)) {
+    throw new LotteryError("补抽请求缺少有效中奖记录", "INVALID_REQUEST");
+  }
+  const existing = activity.records.find((row) => row.id === requestId);
+  if (existing) {
+    if (existing.replaces !== winnerId)
+      throw new LotteryError("补抽请求与中奖记录不一致", "INVALID_REQUEST");
+    return { activity, winner: existing };
+  }
+  const previous = activity.records.find((row) => row.id === winnerId);
+  if (!previous)
+    throw new LotteryError(
+      "该号码已在其他页面被替换，请查看最新中奖名单",
+      "WINNER_REPLACED",
+    );
+  const at = new Date().toISOString();
   const winner = {
     id: requestId,
-    type,
-    number: available[index],
-    at: new Date().toISOString(),
+    type: previous.type,
+    number: chooseNumber(activity, config, choose),
+    at,
+    replaces: winnerId,
   };
   const next = {
     ...activity,
     revision: activity.revision + 1,
-    records: [...activity.records, winner],
+    records: activity.records.map((row) =>
+      row.id === winnerId ? winner : row,
+    ),
+    absentRecords: [
+      ...(activity.absentRecords || []),
+      { ...previous, excludedAt: at, replacedBy: requestId },
+    ],
   };
   validate(next, config);
   return { activity: next, winner };
