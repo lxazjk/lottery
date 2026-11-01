@@ -7,12 +7,71 @@ import {
   snapshot,
   validate,
   randomBelow,
+  secureId,
 } from "./model.mjs";
 
 const config = JSON.parse(
   readFileSync(new URL("./config.json", import.meta.url)),
 );
 const id = () => crypto.randomUUID();
+
+test("UUID fallback sets the required version/variant bits without a native randomUUID", () => {
+  const source = {
+    getRandomValues(bytes) {
+      assert.equal(this, source);
+      return bytes.fill(255);
+    },
+  };
+  assert.equal(secureId(source), "ffffffff-ffff-4fff-bfff-ffffffffffff");
+  assert.throws(() => secureId({}), { code: "BROWSER_UNSUPPORTED" });
+});
+
+test("an environment without randomUUID or structuredClone can initialize, draw all prizes, reload, and reset", () => {
+  const cryptoDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "crypto",
+  );
+  const cloneDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "structuredClone",
+  );
+  const provider = { getRandomValues: crypto.getRandomValues.bind(crypto) };
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: provider,
+  });
+  Object.defineProperty(globalThis, "structuredClone", {
+    configurable: true,
+    value: undefined,
+  });
+  try {
+    let activity = createActivity(config);
+    const activityId = activity.id;
+    const ids = [activityId];
+    for (const type of [4, 4, 4, 3, 3, 2, 2, 1]) {
+      const requestId = secureId();
+      ids.push(requestId);
+      activity = draw(activity, config, type, requestId, activityId).activity;
+    }
+    assert.equal(new Set(ids).size, 9);
+    assert(
+      ids.every((value) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+          value,
+        ),
+      ),
+    );
+    assert.equal(new Set(activity.records.map((row) => row.number)).size, 8);
+    const reloaded = snapshot(JSON.parse(JSON.stringify(activity)), config);
+    assert.equal(reloaded.records.length, 8);
+    reloaded.records[0].number = 999;
+    assert.notEqual(activity.records[0].number, 999);
+    assert.notEqual(createActivity(config).id, activityId);
+  } finally {
+    Object.defineProperty(globalThis, "crypto", cryptoDescriptor);
+    Object.defineProperty(globalThis, "structuredClone", cloneDescriptor);
+  }
+});
 
 test("all 8 winners are distinct across prizes, even when the RNG always picks index zero", () => {
   let activity = createActivity(config);

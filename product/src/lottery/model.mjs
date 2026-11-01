@@ -6,6 +6,39 @@ export class LotteryError extends Error {
   }
 }
 
+// Some embedded browsers expose getRandomValues but not randomUUID. Keep IDs
+// cryptographically random in both environments; never fall back to Math.random.
+export function secureId(source = globalThis.crypto) {
+  if (typeof source?.randomUUID === "function") return source.randomUUID();
+  if (typeof source?.getRandomValues !== "function") {
+    throw new LotteryError(
+      "当前浏览器不支持安全随机数，请使用新版 Chrome 或 Safari 打开",
+      "BROWSER_UNSUPPORTED",
+    );
+  }
+  const bytes = source.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join("-");
+}
+
+// Winner records contain only primitive fields. An explicit copy also supports
+// browsers without the newer structuredClone global.
+function copyRecords(records) {
+  if (!Array.isArray(records))
+    throw new LotteryError("中奖记录格式异常，请检查备份", "INVALID_DATA");
+  return records.map((record) => ({ ...record }));
+}
+
 function signature(config) {
   return JSON.stringify([
     config.numberRange,
@@ -62,11 +95,11 @@ export function validate(activity, config) {
 
 export function createActivity(config, records = []) {
   const activity = {
-    id: crypto.randomUUID(),
+    id: secureId(),
     revision: 0,
     createdAt: new Date().toISOString(),
     config: signature(config),
-    records: structuredClone(records),
+    records: copyRecords(records),
   };
   validate(activity, config);
   return activity;
@@ -78,7 +111,7 @@ export function snapshot(activity, config) {
     activityId: activity.id,
     revision: activity.revision,
     cfgData: config,
-    records: structuredClone(activity.records),
+    records: copyRecords(activity.records),
     availableCount:
       config.numberRange.end -
       config.numberRange.start +
