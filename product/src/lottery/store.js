@@ -5,6 +5,7 @@ export const state = reactive({
   error: "",
   prizes: [],
   records: [],
+  absentRecords: [],
   activityId: null,
   revision: 0,
   range: { start: 1, end: 200 },
@@ -20,6 +21,7 @@ export function applySnapshot(data) {
   state.prizes = data.cfgData.prizes;
   state.range = data.cfgData.numberRange;
   state.records = data.records;
+  state.absentRecords = data.absentRecords || [];
 }
 
 export function nextPrize() {

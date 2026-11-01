@@ -826,11 +826,21 @@ kbd {
   letter-spacing: 3px;
   margin-top: 8px;
 }
-.winner-line {
-  height: 1px;
-  width: 115px;
-  background: linear-gradient(90deg, transparent, #ac8e52, transparent);
-  margin-top: 28px;
+.redraw-button.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+  min-height: 44px;
+  padding: 0 22px;
+  color: #ead2a0;
+  border-color: #c5a26570;
+  background: #b99a4e12;
+  font-size: 13px;
+}
+.redraw-button svg {
+  width: 16px;
+  height: 16px;
 }
 .completion-display {
   position: absolute;
@@ -1011,7 +1021,8 @@ kbd {
   gap: 10px;
   flex: 1;
 }
-.result-numbers span {
+.result-numbers span,
+.result-number {
   width: 57px;
   height: 39px;
   display: grid;
@@ -1024,6 +1035,22 @@ kbd {
   background: #c4a86310;
   border: 1px solid #b6a26835;
   border-radius: 5px;
+}
+.result-number {
+  width: 82px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.result-number svg {
+  width: 13px;
+  height: 13px;
+}
+.result-number:hover,
+.redraw-button:hover {
+  background: #c4a86325;
+  border-color: var(--gold);
 }
 .result-numbers .empty-number {
   color: #4c5640;
@@ -1435,7 +1462,7 @@ kbd {
     font-size: 12px;
     letter-spacing: 2px;
   }
-  .winner-line {
+  .redraw-button.secondary-button {
     margin-top: 18px;
   }
   .dialog-card {
@@ -1459,10 +1486,15 @@ kbd {
   .result-numbers {
     gap: 6px;
   }
-  .result-numbers span {
+  .result-numbers span,
+  .result-number {
     width: 44px;
     height: 36px;
     font-size: 20px;
+  }
+  .result-number {
+    width: 58px;
+    gap: 4px;
   }
   .result-row > small {
     font-size: 9px;
@@ -1516,6 +1548,11 @@ kbd {
   }
   .result-numbers span {
     width: 36px;
+  }
+  .result-number {
+    width: 50px;
+    font-size: 18px;
+    gap: 3px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
