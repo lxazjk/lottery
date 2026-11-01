@@ -1,0 +1,41 @@
+{
+  "title": "幸运盛典",
+  "numberRange": {
+    "start": 1,
+    "end": 200
+  },
+  "prizes": [
+    {
+      "type": 1,
+      "text": "特等奖",
+      "count": 1,
+      "label": "GRAND PRIZE",
+      "name": "Redmi 平板",
+      "image": "/img/prizes/redmi-tablet.jpg"
+    },
+    {
+      "type": 2,
+      "text": "一等奖",
+      "count": 2,
+      "label": "FIRST PRIZE",
+      "name": "小米智能音箱 Pro",
+      "image": "/img/prizes/xiaomi-speaker-pro.jpg"
+    },
+    {
+      "type": 3,
+      "text": "二等奖",
+      "count": 2,
+      "label": "SECOND PRIZE",
+      "name": "米家负离子速干吹风机 H300",
+      "image": "/img/prizes/mijia-hair-dryer-h300.jpg"
+    },
+    {
+      "type": 4,
+      "text": "三等奖",
+      "count": 3,
+      "label": "THIRD PRIZE",
+      "name": "小米充电宝 10000mAh",
+      "image": "/img/prizes/xiaomi-power-bank.jpg"
+    }
+  ]
+}

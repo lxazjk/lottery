@@ -1,5 +1,7 @@
 # Lottery program
 
+> 本仓库已定制为 **1–200 企业号码抽奖静态版**。当前启动、排重、浏览器保存与部署说明请阅读 [README-企业版.md](./README-企业版.md)。以下为上游原版介绍，原后端仅保留用于兼容旧数据。
+
 **This project has been refactored with Vue 3 + Vite**
 
 Annual dinner lottery program, 3D sphere raffle, support for configuration of prize information, import participants information by `Excel`, and export lottery results by `Excel`

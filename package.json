@@ -1,0 +1,16 @@
+{
+  "name": "enterprise-lottery",
+  "version": "1.0.0",
+  "private": true,
+  "description": "基于 moshang-ax/lottery 的 1–200 企业号码抽奖",
+  "scripts": {
+    "setup": "npm --prefix product ci",
+    "build": "npm --prefix product run build",
+    "start": "npm --prefix product run preview",
+    "dev": "npm --prefix product run dev",
+    "test": "node --test product/src/lottery/model.test.mjs server/draw-store.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
