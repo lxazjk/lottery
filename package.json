@@ -8,6 +8,7 @@
     "build": "npm --prefix product run build",
     "start": "npm --prefix product run preview",
     "dev": "npm --prefix product run dev",
+    "publish:pages": "node scripts/publish-pages.mjs",
     "test": "node --test product/src/lottery/model.test.mjs server/draw-store.test.js"
   },
   "engines": {

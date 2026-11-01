@@ -68,3 +68,7 @@ npm start
 `npm run build` 生成的 `product/dist/` 可以部署到 GitHub Pages、Cloudflare Pages 等静态托管服务，再绑定 `lottery.lxazjk.me`。托管端只提供 HTML、JS、CSS、奖品图片和音乐，无需购买云服务器，也无需部署 `server/`。
 
 静态资源使用相对路径，可用于独立子域名或项目子路径。请通过 HTTPS 访问（本机 `localhost` 和 `127.0.0.1` 可使用 HTTP），以使用安全随机数等浏览器能力。不同访问者各自使用自己的活动记录；不是所有访客共用一场抽奖。
+
+本仓库使用 `vue` 分支保存源代码、`codex/pages` 分支保存构建产物。更新源代码并提交后，运行 `npm run publish:pages`，脚本会先测试、构建，再将纯静态文件推送到发布分支。GitHub Pages 的发布源应选择 `codex/pages` 分支的根目录。源代码中的中奖记录、本地缓存及开发依赖均不进入发布分支。
+
+如当前网络需要本地代理，可通过 `LOTTERY_GIT_PROXY=http://127.0.0.1:7897 npm run publish:pages` 运行发布命令；不要把访问凭据写入仓库。
